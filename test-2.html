@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Pub/Sub Connection Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+
+      .connection-container {
+        display: flex;
+        gap: 20px;
+        margin-bottom: 20px;
+      }
+
+      .connection {
+        flex: 1;
+        padding: 20px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+
+      .status {
+        padding: 8px;
+        margin-bottom: 10px;
+        border-radius: 4px;
+      }
+
+      .connected {
+        background-color: #d4edda;
+        color: #155724;
+      }
+
+      .disconnected {
+        background-color: #f8d7da;
+        color: #721c24;
+      }
+
+      .message-container {
+        height: 300px;
+        overflow-y: auto;
+        border: 1px solid #eee;
+        padding: 10px;
+        margin-top: 10px;
+      }
+
+      .message {
+        padding: 8px;
+        margin: 5px 0;
+        border-radius: 4px;
+        animation: fadeIn 0.5s ease-in;
+      }
+
+      .message.new {
+        background-color: #e8f4fd;
+        border-left: 3px solid #007bff;
+      }
+
+      @keyframes fadeIn {
+        from {
+          opacity: 0;
+          transform: translateY(-10px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      .publish-container {
+        margin-top: 20px;
+        padding: 20px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+
+      input,
+      button {
+        padding: 8px;
+        margin: 5px 0;
+      }
+
+      button {
+        background-color: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background-color: #0056b3;
+      }
+
+      .notification {
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 15px;
+        background-color: #28a745;
+        color: white;
+        border-radius: 4px;
+        display: none;
+        animation: slideIn 0.3s ease-out;
+      }
+
+      @keyframes slideIn {
+        from {
+          transform: translateX(100%);
+        }
+        to {
+          transform: translateX(0);
+        }
+      }
+
+      #message-count {
+        font-size: 0.9em;
+        color: #666;
+        margin-top: 5px;
+      }
+
+      .topic-container {
+        margin-bottom: 20px;
+        padding: 20px;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+      }
+
+      .topic-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-top: 10px;
+      }
+
+      .topic-badge {
+        background-color: #e8f4fd;
+        border: 1px solid #007bff;
+        color: #007bff;
+        padding: 5px 10px;
+        border-radius: 15px;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+      }
+
+      .topic-badge button {
+        background: none;
+        border: none;
+        color: #dc3545;
+        padding: 0 5px;
+        cursor: pointer;
+        font-size: 18px;
+      }
+
+      .topic-badge button:hover {
+        background: none;
+        color: #c82333;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Pub/Sub Connection Test</h1>
+
+    <!-- Add Topic Management Section -->
+    <div class="topic-container">
+      <h2>Topic Subscriptions</h2>
+      <div>
+        <input type="text" id="new-topic" placeholder="Topic name" />
+        <button onclick="subscribeTopic()">Subscribe to Topic</button>
+      </div>
+      <div class="topic-list" id="topic-list">
+        <!-- Topics will be added here -->
+      </div>
+    </div>
+
+    <div class="notification" id="publish-notification">Message Published!</div>
+
+    <div class="connection-container">
+      <!-- SSE Connection -->
+      <div class="connection">
+        <h2>SSE Connection</h2>
+        <div id="sse-status" class="status disconnected">Disconnected</div>
+        <button onclick="connectSSE()">Connect SSE</button>
+        <button onclick="disconnectSSE()">Disconnect SSE</button>
+        <div class="message-container" id="sse-messages"></div>
+        <div id="sse-count">Messages received: 0</div>
+      </div>
+
+      <!-- WebSocket Connection -->
+      <div class="connection">
+        <h2>WebSocket Connection</h2>
+        <div id="ws-status" class="status disconnected">Disconnected</div>
+        <button onclick="connectWS()">Connect WebSocket</button>
+        <button onclick="disconnectWS()">Disconnect WebSocket</button>
+        <div class="message-container" id="ws-messages"></div>
+        <div id="ws-count">Messages received: 0</div>
+      </div>
+    </div>
+
+    <!-- Publish Form -->
+    <div class="publish-container">
+      <h2>Publish Message</h2>
+      <div>
+        <input type="text" id="topic" placeholder="Topic" />
+        <input type="text" id="message" placeholder="Message" />
+        <button onclick="publishMessage()">Publish</button>
+      </div>
+    </div>
+
+    <script>
+      let eventSource = null;
+      let webSocket = null;
+      const clientId = "client-" + Math.random().toString(36).substr(2, 9);
+      let sseMessageCount = 0;
+      let wsMessageCount = 0;
+      let subscribedTopics = new Set(["default"]);
+
+      function showNotification(message) {
+        const notification = document.getElementById("publish-notification");
+        notification.textContent = message;
+        notification.style.display = "block";
+        setTimeout(() => {
+          notification.style.display = "none";
+        }, 3000);
+      }
+
+      function appendMessage(containerId, message, counterId) {
+        const container = document.getElementById(containerId);
+        const messageDiv = document.createElement("div");
+        messageDiv.className = "message new";
+        messageDiv.textContent = `${new Date().toLocaleTimeString()}: ${message}`;
+        container.appendChild(messageDiv);
+        container.scrollTop = container.scrollHeight;
+
+        // Update message count
+        if (containerId === "sse-messages") {
+          sseMessageCount++;
+          document.getElementById(
+            "sse-count"
+          ).textContent = `Messages received: ${sseMessageCount}`;
+        } else {
+          wsMessageCount++;
+          document.getElementById(
+            "ws-count"
+          ).textContent = `Messages received: ${wsMessageCount}`;
+        }
+
+        // Remove 'new' class after animation
+        setTimeout(() => {
+          messageDiv.classList.remove("new");
+        }, 2000);
+
+        console.log(`Message received on ${containerId}:`, message);
+      }
+
+      function updateStatus(type, connected) {
+        const status = document.getElementById(`${type}-status`);
+        status.textContent = connected ? "Connected" : "Disconnected";
+        status.className = `status ${connected ? "connected" : "disconnected"}`;
+        console.log(`${type} connection status:`, connected);
+      }
+
+      function connectSSE() {
+        if (eventSource) {
+          eventSource.close();
+        }
+
+        console.log("Connecting to SSE...");
+        const params = new URLSearchParams({ id: clientId });
+        subscribedTopics.forEach((topic) => params.append("topics", topic));
+
+        eventSource = new EventSource(
+          `http://localhost:8080/subscribe/sse?${params.toString()}`
+        );
+
+        eventSource.onopen = () => {
+          console.log("SSE connection opened");
+          updateStatus("sse", true);
+          appendMessage("sse-messages", "Connected to SSE");
+        };
+
+        eventSource.onmessage = (event) => {
+          console.log("SSE message received:", event.data);
+          appendMessage("sse-messages", event.data);
+        };
+
+        eventSource.onerror = (error) => {
+          console.error("SSE error:", error);
+          updateStatus("sse", false);
+          appendMessage("sse-messages", "Connection error");
+          eventSource.close();
+          eventSource = null;
+        };
+      }
+
+      function disconnectSSE() {
+        if (eventSource) {
+          eventSource.close();
+          eventSource = null;
+          updateStatus("sse", false);
+          appendMessage("sse-messages", "Disconnected from SSE");
+          console.log("SSE disconnected");
+        }
+      }
+
+      function connectWS() {
+        if (webSocket) {
+          webSocket.close();
+        }
+
+        console.log("Connecting to WebSocket...");
+        const params = new URLSearchParams({ id: clientId });
+        subscribedTopics.forEach((topic) => params.append("topics", topic));
+
+        webSocket = new WebSocket(
+          `ws://localhost:8080/subscribe/ws?${params.toString()}`
+        );
+
+        webSocket.onopen = () => {
+          console.log("WebSocket connection opened");
+          updateStatus("ws", true);
+          appendMessage("ws-messages", "Connected to WebSocket");
+        };
+
+        webSocket.onmessage = (event) => {
+          console.log("WebSocket message received:", event.data);
+          appendMessage("ws-messages", event.data);
+        };
+
+        webSocket.onclose = () => {
+          console.log("WebSocket connection closed");
+          updateStatus("ws", false);
+          appendMessage("ws-messages", "Disconnected from WebSocket");
+          webSocket = null;
+        };
+
+        webSocket.onerror = (error) => {
+          console.error("WebSocket error:", error);
+          updateStatus("ws", false);
+          appendMessage("ws-messages", "Connection error");
+          webSocket.close();
+          webSocket = null;
+        };
+      }
+
+      function disconnectWS() {
+        if (webSocket) {
+          webSocket.close();
+          webSocket = null;
+          updateStatus("ws", false);
+          appendMessage("ws-messages", "Disconnected from WebSocket");
+          console.log("WebSocket disconnected");
+        }
+      }
+
+      async function publishMessage() {
+        const topic = document.getElementById("topic").value;
+        const message = document.getElementById("message").value;
+
+        if (!topic || !message) {
+          alert("Please enter both topic and message");
+          return;
+        }
+
+        console.log("Publishing message:", { topic, message });
+
+        try {
+          const response = await fetch("http://localhost:8080/publish", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ topic, message }),
+          });
+
+          if (!response.ok) {
+            throw new Error("Failed to publish message");
+          }
+
+          const result = await response.json();
+          console.log("Publish response:", result);
+          showNotification("Message Published Successfully!");
+          document.getElementById("message").value = "";
+        } catch (error) {
+          console.error("Error publishing message:", error);
+          alert("Error publishing message: " + error.message);
+        }
+      }
+
+      // Cleanup on page unload
+      window.onunload = () => {
+        if (eventSource) eventSource.close();
+        if (webSocket) webSocket.close();
+      };
+
+      async function subscribeTopic() {
+        const topicInput = document.getElementById("new-topic");
+        const topic = topicInput.value.trim();
+
+        if (!topic) {
+          alert("Please enter a topic name");
+          return;
+        }
+
+        try {
+          const response = await fetch("http://localhost:8080/subscribe", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              topics: [topic],
+              id: clientId,
+            }),
+          });
+
+          if (!response.ok) {
+            throw new Error("Failed to subscribe to topic");
+          }
+
+          subscribedTopics.add(topic);
+          updateTopicsList();
+          topicInput.value = "";
+          showNotification(`Subscribed to topic: ${topic}`);
+        } catch (error) {
+          alert("Error subscribing to topic: " + error.message);
+        }
+      }
+
+      function unsubscribeTopic(topic) {
+        subscribedTopics.delete(topic);
+        updateTopicsList();
+        showNotification(`Unsubscribed from topic: ${topic}`);
+      }
+
+      updateTopicsList();
+
+      function updateTopicsList() {
+        const topicList = document.getElementById("topic-list");
+        topicList.innerHTML = "";
+
+        subscribedTopics.forEach((topic) => {
+          const topicElement = document.createElement("div");
+          topicElement.className = "topic-badge";
+          topicElement.innerHTML = `
+            ${topic}
+            <button onclick="unsubscribeTopic('${topic}')">&times;</button>
+          `;
+          topicList.appendChild(topicElement);
+        });
+      }
+    </script>
+  </body>
+</html>

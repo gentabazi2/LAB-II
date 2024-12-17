@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>SSE Example</title>
+  </head>
+  <body>
+    <div id="sse-data"></div>
+
+    <script>
+      const eventSource = new EventSource(
+        "http://localhost:8080/subscribessl?id=client1"
+      );
+
+      eventSource.onmessage = function (event) {
+        const dataElement = document.getElementById("sse-data");
+        dataElement.innerHTML += event.data + "<br>";
+      };
+
+      eventSource.addEventListener("done", function (event) {
+        console.log("Server sent final event: ", event.data);
+        const dataElement = document.getElementById("sse-data");
+        dataElement.innerHTML += "<strong>" + event.data + "</strong><br>";
+        eventSource.close();
+      });
+    </script>
+  </body>
+</html>
